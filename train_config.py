@@ -32,37 +32,24 @@ Background Video Train/Valid
 
 
 DATA_PATHS = {
-    
+
     'videomatte': {
-        'train': '../matting-data/VideoMatte240K_JPEG_SD/train',
-        'valid': '../matting-data/VideoMatte240K_JPEG_SD/valid',
+        'train': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K_JPEG/train',
+        'valid': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K_JPEG/test',
     },
-    'imagematte': {
-        'train': '../matting-data/ImageMatte/train',
-        'valid': '../matting-data/ImageMatte/valid',
+    'local_background': {
+        # 'train': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
+        'train': '/home/xinjiang/Documents/VBHOI/VBHOI-Code/LORO/Adapt_data/BG',
     },
     'background_images': {
-        'train': '../matting-data/Backgrounds/train',
-        'valid': '../matting-data/Backgrounds/valid',
+        'train': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
+        # 'train': '/home/xinjiang/Documents/VBHOI/VBHOI-Code/LORO/Adapt_data/BG',
+        'valid': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
     },
     'background_videos': {
-        'train': '../matting-data/BackgroundVideos/train',
-        'valid': '../matting-data/BackgroundVideos/valid',
+        'train': '/home/xinjiang/Documents/VBHOI/Datasets/BG_Dynamic_JPEG',
+        'valid': '/home/xinjiang/Documents/VBHOI/Datasets/BG_Dynamic_JPEG',
     },
-    
-    
-    'coco_panoptic': {
-        'imgdir': '../matting-data/coco/train2017/',
-        'anndir': '../matting-data/coco/panoptic_train2017/',
-        'annfile': '../matting-data/coco/annotations/panoptic_train2017.json',
-    },
-    'spd': {
-        'imgdir': '../matting-data/SuperviselyPersonDataset/img',
-        'segdir': '../matting-data/SuperviselyPersonDataset/seg',
-    },
-    'youtubevis': {
-        'videodir': '../matting-data/YouTubeVIS/train/JPEGImages',
-        'annfile': '../matting-data/YouTubeVIS/train/instances.json',
-    }
-    
+
+
 }

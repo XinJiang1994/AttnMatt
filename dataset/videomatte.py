@@ -11,7 +11,23 @@ import numpy as np
 import torchvision.transforms as transforms
 
 
-class VideoMatteDataset(Dataset):
+random_erasing = transforms.RandomErasing(
+    p=1.0,  # 概率值，执行该操作的概率，默认为 0.5
+    scale=(0.02, 0.33),  # 按均匀分布概率抽样，遮挡区域的面积 = image * scale
+    ratio=(0.3, 3.3),  # 遮挡区域的宽高比，按均匀分布概率抽样
+    value=255,  # 遮挡区域的像素值，(R, G, B) or (Gray)；传入字符串表示用随机彩色像素填充遮挡区域
+    inplace=False
+)
+random_erasing_0 = transforms.RandomErasing(
+    p=1.0,  # 概率值，执行该操作的概率，默认为 0.5
+    scale=(0.02, 0.33),  # 按均匀分布概率抽样，遮挡区域的面积 = image * scale
+    ratio=(0.3, 3.3),  # 遮挡区域的宽高比，按均匀分布概率抽样
+    value=0,  # 遮挡区域的像素值，(R, G, B) or (Gray)；传入字符串表示用随机彩色像素填充遮挡区域
+    inplace=False
+)
+
+
+class VideoMatteDatasetForMH(Dataset):
     def __init__(self,
                  videomatte_dir,
                  background_image_dir,
@@ -19,9 +35,10 @@ class VideoMatteDataset(Dataset):
                  size,
                  seq_length,
                  seq_sampler,
+                 bgs,
                  transform=None):
         self.background_image_dir = background_image_dir
-        self.background_image_files = os.listdir(background_image_dir)
+        self.background_image_files = bgs
         self.background_video_dir = background_video_dir
         self.background_video_clips = sorted(os.listdir(background_video_dir))
         self.background_video_frames = [sorted(os.listdir(os.path.join(background_video_dir, clip)))
@@ -29,8 +46,8 @@ class VideoMatteDataset(Dataset):
 
         self.videomatte_dir = videomatte_dir
         self.videomatte_clips = sorted(
-            os.listdir(os.path.join(videomatte_dir, 'fgr')))
-        self.videomatte_frames = [sorted(os.listdir(os.path.join(videomatte_dir, 'fgr', clip)))
+            os.listdir(os.path.join(videomatte_dir, 'fgr_com')))
+        self.videomatte_frames = [sorted(os.listdir(os.path.join(videomatte_dir, 'fgr_com', clip)))
                                   for clip in self.videomatte_clips]
         self.videomatte_idx = [(clip_idx, frame_idx)
                                for clip_idx in range(len(self.videomatte_clips))
@@ -49,12 +66,12 @@ class VideoMatteDataset(Dataset):
         else:
             bgrs = self._get_random_video_background()
 
-        fgrs, phas = self._get_videomatte(idx)
+        fgrs, phas, pha_coms = self._get_videomatte(idx)
 
         if self.transform is not None:
-            return self.transform(fgrs, phas, bgrs)
+            return self.transform(fgrs, phas, pha_coms, bgrs)
 
-        return fgrs, phas, bgrs
+        return fgrs, phas, pha_coms, bgrs
 
     def _get_random_image_background(self):
         with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
@@ -81,17 +98,20 @@ class VideoMatteDataset(Dataset):
         clip_idx, frame_idx = self.videomatte_idx[idx]
         clip = self.videomatte_clips[clip_idx]
         frame_count = len(self.videomatte_frames[clip_idx])
-        fgrs, phas = [], []
+        fgrs, phas, pha_coms = [], [], []
         for i in self.seq_sampler(self.seq_length):
             frame = self.videomatte_frames[clip_idx][(
                 frame_idx + i) % frame_count]
-            with Image.open(os.path.join(self.videomatte_dir, 'fgr', clip, frame)) as fgr, \
-                    Image.open(os.path.join(self.videomatte_dir, 'pha', clip, frame)) as pha:
+            with Image.open(os.path.join(self.videomatte_dir, 'fgr_com', clip, frame)) as fgr, \
+                    Image.open(os.path.join(self.videomatte_dir, 'pha', clip, frame)) as pha, \
+            Image.open(os.path.join(self.videomatte_dir, 'pha_com', clip, frame)) as pha_com   :
                 fgr = self._downsample_if_needed(fgr.convert('RGB'))
                 pha = self._downsample_if_needed(pha.convert('L'))
+                pha_com = self._downsample_if_needed(pha_com.convert('L'))
             fgrs.append(fgr)
             phas.append(pha)
-        return fgrs, phas
+            pha_coms.append(pha_com)
+        return fgrs, phas, pha_coms
 
     def _downsample_if_needed(self, img):
         w, h = img.size
@@ -100,364 +120,6 @@ class VideoMatteDataset(Dataset):
             w = int(scale * w)
             h = int(scale * h)
             img = img.resize((w, h))
-        return img
-
-
-class VideoMatteDatasetForMetaTask(Dataset):
-    def __init__(self,
-                 videomatte_dir,
-                 background_image_dir,
-                 background_video_dir,
-                 size,
-                 seq_length,
-                 seq_sampler,
-                 dset='train',  # train set or test set
-                 im_bgs=None,
-                 transform=None):
-        self.background_image_dir = background_image_dir
-        self.background_image_files = im_bgs
-        self.background_video_dir = background_video_dir
-        self.background_video_clips = sorted(os.listdir(background_video_dir))
-        self.background_video_frames = [sorted(os.listdir(os.path.join(background_video_dir, clip)))
-                                        for clip in self.background_video_clips]
-
-        self.videomatte_dir = videomatte_dir
-        self.dset = dset
-        self.task_names = sorted(os.listdir(videomatte_dir))
-        # self.videomatte_clips = [os.path.join(videomatte_dir,t_name,dset,'fgr') for t_name in task_names]
-        self.videomatte_frames = [sorted(os.listdir(os.path.join(videomatte_dir, t_name, dset, 'fgr')))
-                                  for t_name in self.task_names]
-        self.videomatte_idx = [(t_idx, frame_idx)
-                               for t_idx in range(len(self.task_names))
-                               for frame_idx in range(0, len(self.videomatte_frames[t_idx]), seq_length)]
-        self.size = size
-        self.seq_length = seq_length
-        self.seq_sampler = seq_sampler
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.videomatte_idx)
-
-    def __getitem__(self, idx):
-        #         print('select: ',idx)
-        if random.random() < 0.5:
-            bgrs = self._get_random_image_background()
-        else:
-            bgrs = self._get_random_video_background()
-
-        fgrs, phas = self._get_videomatte(idx)
-
-        if self.transform is not None:
-            return self.transform(fgrs, phas, bgrs)
-
-        return fgrs, phas, bgrs
-
-    def _get_random_image_background(self):
-        with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
-            bgr = self._downsample_if_needed(bgr.convert('RGB'))
-        bgrs = [bgr] * self.seq_length
-        return bgrs
-
-    def _get_random_video_background(self):
-        clip_idx = random.choice(range(len(self.background_video_clips)))
-        frame_count = len(self.background_video_frames[clip_idx])
-        frame_idx = random.choice(range(max(1, frame_count - self.seq_length)))
-        clip = self.background_video_clips[clip_idx]
-        bgrs = []
-        for i in self.seq_sampler(self.seq_length):
-            frame_idx_t = frame_idx + i
-            frame = self.background_video_frames[clip_idx][frame_idx_t %
-                                                           frame_count]
-            with Image.open(os.path.join(self.background_video_dir, clip, frame)) as bgr:
-                bgr = self._downsample_if_needed(bgr.convert('RGB'))
-            bgrs.append(bgr)
-        return bgrs
-
-    def _get_videomatte(self, idx):
-        task_idx, frame_idx = self.videomatte_idx[idx]
-        task_name = self.task_names[task_idx]
-        frame_count = len(self.videomatte_frames[task_idx])
-        fgrs, phas = [], []
-        for i in self.seq_sampler(self.seq_length):
-            frame = self.videomatte_frames[task_idx][(
-                frame_idx + i) % frame_count]
-            with Image.open(os.path.join(self.videomatte_dir, task_name, self.dset, 'fgr', frame)) as fgr, \
-                    Image.open(os.path.join(self.videomatte_dir, task_name, self.dset, 'pha', frame)) as pha:
-                fgr = self._downsample_if_needed(fgr.convert('RGB'))
-                pha = self._downsample_if_needed(pha.convert('L'))
-            fgrs.append(fgr)
-            phas.append(pha)
-        return fgrs, phas
-
-    def _downsample_if_needed(self, img):
-        w, h = img.size
-        if min(w, h) > self.size:
-            scale = self.size / min(w, h)
-            w = int(scale * w)
-            h = int(scale * h)
-            img = img.resize((w, h))
-        return img
-
-
-random_erasing = transforms.RandomErasing(
-    p=1.0,  # 概率值，执行该操作的概率，默认为 0.5
-    scale=(0.02, 0.33),  # 按均匀分布概率抽样，遮挡区域的面积 = image * scale
-    ratio=(0.3, 3.3),  # 遮挡区域的宽高比，按均匀分布概率抽样
-    value=255,  # 遮挡区域的像素值，(R, G, B) or (Gray)；传入字符串表示用随机彩色像素填充遮挡区域
-    inplace=False
-)
-random_erasing_0 = transforms.RandomErasing(
-    p=1.0,  # 概率值，执行该操作的概率，默认为 0.5
-    scale=(0.02, 0.33),  # 按均匀分布概率抽样，遮挡区域的面积 = image * scale
-    ratio=(0.3, 3.3),  # 遮挡区域的宽高比，按均匀分布概率抽样
-    value=0,  # 遮挡区域的像素值，(R, G, B) or (Gray)；传入字符串表示用随机彩色像素填充遮挡区域
-    inplace=False
-)
-
-
-class VideoMatteDatasetForMH(Dataset):
-    def __init__(self,
-                 videomatte_dir,
-                 background_image_dir,
-                 background_video_dir,
-                 vname,
-                 size,
-                 seq_length,
-                 seq_sampler,
-                 bgs,
-                 transform=None,
-                 # a tuple (partation_id, total_partation_nums)
-                 ):
-        self.background_image_dir = background_image_dir
-        # self.background_image_files = os.listdir(background_image_dir)
-        self.background_image_files = bgs
-        self.background_video_dir = background_video_dir
-        self.background_video_clips = sorted(os.listdir(background_video_dir))
-        self.background_video_frames = [sorted(os.listdir(os.path.join(background_video_dir, clip)))
-                                        for clip in self.background_video_clips]
-
-        self.videomatte_dir = videomatte_dir
-        v_path = os.path.join(videomatte_dir, 'fgr', vname)
-        print(v_path)
-        pha_path = os.path.join(videomatte_dir, 'pha', vname)
-        self.cap_v = cv2.VideoCapture(v_path)
-        self.cap_pha = cv2.VideoCapture(pha_path)
-        self.frame_count = int(self.cap_pha.get(cv2.CAP_PROP_FRAME_COUNT))
-        # random sample
-
-        self.size = size
-        self.seq_length = seq_length
-        self.seq_sampler = seq_sampler
-        self.transform = transform
-
-    def __len__(self):
-        return self.frame_count
-
-    def __getitem__(self, idx):
-        # st=time.time()
-
-        if random.random() < 0.5:
-            bgrs = self._get_random_image_background()
-        else:
-            bgrs = self._get_random_video_background()
-        # bg_time=time.time()
-        # print('Load bg time: ',bg_time-st)
-
-        fgrs, phas = self._get_videomatte(idx)
-
-        # get_vide_oframe_time=time.time()
-        # print('get_vide_oframe_time: ',get_vide_oframe_time-bg_time)
-
-        if self.transform is not None:
-            fgrs, phas, bgrs = self.transform(fgrs, phas, bgrs)
-            # print('transform time: ',time.time()-get_vide_oframe_time)
-            # return fgrs, phas, bgrs
-        return fgrs, phas, bgrs
-
-    def _get_random_image_background(self):
-        with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
-            bgr = self._downsample_if_needed(bgr.convert('RGB'))
-        bgrs = [bgr] * self.seq_length
-        return bgrs
-
-    def _get_random_video_background(self):
-        clip_idx = random.choice(range(len(self.background_video_clips)))
-        frame_count = len(self.background_video_frames[clip_idx])
-        frame_idx = random.choice(range(max(1, frame_count - self.seq_length)))
-        clip = self.background_video_clips[clip_idx]
-        bgrs = []
-        for i in self.seq_sampler(self.seq_length):
-            frame_idx_t = frame_idx + i
-            frame = self.background_video_frames[clip_idx][frame_idx_t %
-                                                           frame_count]
-            with Image.open(os.path.join(self.background_video_dir, clip, frame)) as bgr:
-                bgr = self._downsample_if_needed(bgr.convert('RGB'))
-            bgrs.append(bgr)
-        return bgrs
-
-    def _get_videomatte(self, idx):
-        fgrs, phas = [], []
-        for i in self.seq_sampler(self.seq_length):
-            frame_idx = (idx+i) % self.frame_count
-            self.cap_v.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            self.cap_pha.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, fgr = self.cap_v.read()
-            if not ret:
-                raise IndexError(
-                    f'Idx: {frame_idx} out of video length: {len(self)}')
-            ret, pha = self.cap_pha.read()
-            if not ret:
-                raise IndexError(
-                    f'Idx: {frame_idx} out of pha length: {len(self)}')
-
-            fgr = cv2.cvtColor(fgr, cv2.COLOR_BGR2RGB)
-            pha = cv2.cvtColor(pha, cv2.COLOR_BGR2RGB)
-
-            fgr = Image.fromarray(fgr)
-            pha = Image.fromarray(pha)
-
-            fgr = self._downsample_if_needed(fgr.convert('RGB'))
-            pha = self._downsample_if_needed(pha.convert('L'))
-            fgrs.append(fgr)
-            phas.append(pha)
-        return fgrs, phas
-
-    def _downsample_if_needed(self, img):
-        w, h = img.size
-        if min(w, h) > self.size:
-            scale = self.size / min(w, h)
-            w = int(scale * w)
-            h = int(scale * h)
-            img = img.resize((w, h))
-        # img = img.resize((self.size, self.size))
-        return img
-
-
-class VideoMatteDatasetForAdaptionWithoutResize(Dataset):
-    def __init__(self,
-                 videomatte_dir,
-                 background_image_dir,
-                 background_video_dir,
-                 vname,
-                 size,
-                 seq_length,
-                 seq_sampler,
-                 sample_len,
-                 bgs,
-                 transform=None):
-        self.background_image_dir = background_image_dir
-        # self.background_image_files = os.listdir(background_image_dir)
-        self.background_image_files = bgs
-        self.background_video_dir = background_video_dir
-        self.background_video_clips = sorted(os.listdir(background_video_dir))
-        self.background_video_frames = [sorted(os.listdir(os.path.join(background_video_dir, clip)))
-                                        for clip in self.background_video_clips]
-
-        self.videomatte_dir = videomatte_dir
-        v_path = os.path.join(videomatte_dir, 'fgr', vname)
-        print(v_path)
-        pha_path = os.path.join(videomatte_dir, 'pha', vname)
-        self.cap_v = cv2.VideoCapture(v_path)
-        self.cap_pha = cv2.VideoCapture(pha_path)
-        self.frame_count = int(self.cap_pha.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        self.sample_len = min(self.frame_count, sample_len)
-
-        # random sample
-
-        self.size = size
-        self.seq_length = seq_length
-        assert self.seq_length == self.sample_len, 'self.seq_length != self.sample_len'
-
-        self.seq_sampler = seq_sampler
-        self.transform = transform
-
-    def __len__(self):
-        return self.sample_len
-
-    def __getitem__(self, idx):
-        # st=time.time()
-        self.idxs = sorted(random.sample(
-            range(self.frame_count), self.sample_len))
-        print('>>>>>selected frames: ', self.idxs)
-
-        if random.random() < 0.5:
-            bgrs = self._get_random_image_background()
-        else:
-            bgrs = self._get_random_video_background()
-        # bg_time=time.time()
-        # print('Load bg time: ',bg_time-st)
-
-        fgrs, phas = self._get_videomatte(idx)
-
-        # get_vide_oframe_time=time.time()
-        # print('get_vide_oframe_time: ',get_vide_oframe_time-bg_time)
-
-        if self.transform is not None:
-            fgrs, phas, bgrs = self.transform(fgrs, phas, bgrs)
-            # print('transform time: ',time.time()-get_vide_oframe_time)
-            # return fgrs, phas, bgrs
-        return fgrs, phas, bgrs
-
-    def _get_random_image_background(self):
-        with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
-            bgr = self._downsample_if_needed(bgr.convert('RGB'))
-        bgrs = [bgr] * self.seq_length
-        return bgrs
-
-    def _get_random_video_background(self):
-        clip_idx = random.choice(range(len(self.background_video_clips)))
-        frame_count = len(self.background_video_frames[clip_idx])
-        frame_idx = random.choice(range(max(1, frame_count - self.seq_length)))
-        clip = self.background_video_clips[clip_idx]
-        bgrs = []
-        for i in self.seq_sampler(self.seq_length):
-            frame_idx_t = frame_idx + i
-            frame = self.background_video_frames[clip_idx][frame_idx_t %
-                                                           frame_count]
-            with Image.open(os.path.join(self.background_video_dir, clip, frame)) as bgr:
-                bgr = self._downsample_if_needed(bgr.convert('RGB'))
-            bgrs.append(bgr)
-        return bgrs
-
-    def _get_videomatte(self, idx):
-        fgrs, phas = [], []
-        for frame_idx in self.idxs:
-            # frame_idx=(idx + i) % self.frame_count
-            self.cap_v.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            self.cap_pha.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, fgr = self.cap_v.read()
-            if not ret:
-                raise IndexError(
-                    f'Idx: {frame_idx} out of video length: {len(self)}')
-            ret, pha = self.cap_pha.read()
-            if not ret:
-                raise IndexError(
-                    f'Idx: {frame_idx} out of pha length: {len(self)}')
-
-            fgr = cv2.cvtColor(fgr, cv2.COLOR_BGR2RGB)
-            pha = cv2.cvtColor(pha, cv2.COLOR_BGR2RGB)
-            pha[pha > 180] = 255
-            # print(pha.max())
-            fgr = Image.fromarray(fgr)
-            pha = Image.fromarray(pha)
-            # print('-----------')
-            # print(np.array(pha.convert('L').getdata()).max())
-
-            fgr = self._downsample_if_needed(fgr.convert('RGB'))
-            pha = self._downsample_if_needed(pha.convert('L'))
-            fgrs.append(fgr)
-            phas.append(pha)
-        return fgrs, phas
-
-    def _downsample_if_needed(self, img):
-        # w, h = img.size
-        # if min(w, h) > self.size:
-        #     scale = self.size / min(w, h)
-        #     w = int(scale * w)
-        #     h = int(scale * h)
-        #     img = img.resize((w, h))
-        # img = img.resize((self.size, self.size))
         return img
 
 

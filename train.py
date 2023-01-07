@@ -6,11 +6,11 @@
 # machine is out of memory.
 
 # Stage 1
-python train.py \
+python3 train.py \
     --model-variant mobilenetv3 \
     --dataset videomatte \
     --resolution-lr 512 \
-    --seq-length-lr 15 \
+    --seq-length-lr 5 \
     --learning-rate-backbone 0.0001 \
     --learning-rate-aspp 0.0002 \
     --learning-rate-decoder 0.0002 \
@@ -18,7 +18,7 @@ python train.py \
     --checkpoint-dir checkpoint/stage1 \
     --log-dir log/stage1 \
     --epoch-start 0 \
-    --epoch-end 20
+    --epoch-end 1
 
 # Stage 2
 python train.py \
@@ -35,7 +35,7 @@ python train.py \
     --log-dir log/stage2 \
     --epoch-start 20 \
     --epoch-end 22
-    
+
 # Stage 3
 python train.py \
     --model-variant mobilenetv3 \
@@ -95,7 +95,7 @@ from torchvision.transforms.functional import center_crop
 from tqdm import tqdm
 
 from dataset.videomatte import (
-    VideoMatteDataset,
+    VideoMatteDatasetForMH,
     VideoMatteTrainAugmentation,
     VideoMatteValidAugmentation,
 )
@@ -118,7 +118,7 @@ from dataset.augmentation import (
     TrainFrameSampler,
     ValidFrameSampler
 )
-from model import MattingNetwork
+from model import MattingNetwork2
 from train_config import DATA_PATHS
 from train_loss import matting_loss, segmentation_loss
 
@@ -188,38 +188,74 @@ class Trainer:
         os.environ['MASTER_PORT'] = self.args.distributed_port
         dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
+    # def zip_dataset(self, frame_size):
+    #     f = open('LocalBGs.txt')
+    #     im_bgs = f.readlines()
+    #     im_bgs = [name.replace('\n', '') for name in im_bgs]
+
+    #     # vnames = os.listdir(os.path.join(
+    #     #     DATA_PATHS['videomatte']['train'], 'fgr_com'))
+    #     vnames = [
+    #         '0000.mp4',
+    #         '0003.mp4',
+    #         # '0006.mp4',
+    #         '0007.mp4', '0008.mp4'
+    #     ]
+    #     ds = []
+
+    #     for vname in vnames:
+    #         dataset = VideoMatteDatasetForMH(
+    #             videomatte_dir=DATA_PATHS['videomatte']['train'],
+    #             background_image_dir=DATA_PATHS['background_images']['train'],
+    #             background_video_dir=DATA_PATHS['background_videos']['train'],
+    #             size=512,
+    #             seq_length=10,
+    #             seq_sampler=TrainFrameSampler(),
+    #             vname=vname,
+    #             bgs=im_bgs,
+    #             transform=VideoMatteTrainAugmentation(frame_size))
+    #         ds.append(dataset)
+
+    #     return ConcatDataset(ds)
+
     def init_datasets(self):
         self.log('Initializing matting datasets')
         size_hr = (self.args.resolution_hr, self.args.resolution_hr)
         size_lr = (self.args.resolution_lr, self.args.resolution_lr)
+        f = open('LocalBGs.txt')
+
+        im_bgs = f.readlines()
+        im_bgs = [name.replace('\n', '') for name in im_bgs]
 
         # Matting datasets:
         if self.args.dataset == 'videomatte':
-            self.dataset_lr_train = VideoMatteDataset(
+            self.dataset_lr_train = VideoMatteDatasetForMH(
                 videomatte_dir=DATA_PATHS['videomatte']['train'],
                 background_image_dir=DATA_PATHS['background_images']['train'],
                 background_video_dir=DATA_PATHS['background_videos']['train'],
-                size=self.args.resolution_lr,
-                seq_length=self.args.seq_length_lr,
+                size=512,
+                seq_length=10,
                 seq_sampler=TrainFrameSampler(),
+                bgs=im_bgs,
                 transform=VideoMatteTrainAugmentation(size_lr))
             if self.args.train_hr:
-                self.dataset_hr_train = VideoMatteDataset(
+                self.dataset_hr_train = VideoMatteDatasetForMH(
                     videomatte_dir=DATA_PATHS['videomatte']['train'],
                     background_image_dir=DATA_PATHS['background_images']['train'],
                     background_video_dir=DATA_PATHS['background_videos']['train'],
-                    size=self.args.resolution_hr,
-                    seq_length=self.args.seq_length_hr,
+                    size=512,
+                    seq_length=10,
                     seq_sampler=TrainFrameSampler(),
+                    bgs=im_bgs,
                     transform=VideoMatteTrainAugmentation(size_hr))
-            self.dataset_valid = VideoMatteDataset(
-                videomatte_dir=DATA_PATHS['videomatte']['valid'],
-                background_image_dir=DATA_PATHS['background_images']['valid'],
-                background_video_dir=DATA_PATHS['background_videos']['valid'],
-                size=self.args.resolution_hr if self.args.train_hr else self.args.resolution_lr,
-                seq_length=self.args.seq_length_hr if self.args.train_hr else self.args.seq_length_lr,
-                seq_sampler=ValidFrameSampler(),
-                transform=VideoMatteValidAugmentation(size_hr if self.args.train_hr else size_lr))
+            # self.dataset_valid = VideoMatteDatasetForMH(
+            #     videomatte_dir=DATA_PATHS['videomatte']['valid'],
+            #     background_image_dir=DATA_PATHS['background_images']['valid'],
+            #     background_video_dir=DATA_PATHS['background_videos']['valid'],
+            #     size=self.args.resolution_hr if self.args.train_hr else self.args.resolution_lr,
+            #     seq_length=self.args.seq_length_hr if self.args.train_hr else self.args.seq_length_lr,
+            #     seq_sampler=ValidFrameSampler(),
+            #     transform=VideoMatteValidAugmentation(size_hr if self.args.train_hr else size_lr))
         else:
             self.dataset_lr_train = ImageMatteDataset(
                 imagematte_dir=DATA_PATHS['imagematte']['train'],
@@ -271,15 +307,15 @@ class Trainer:
                 num_workers=self.args.num_workers,
                 sampler=self.datasampler_hr_train,
                 pin_memory=True)
-        self.dataloader_valid = DataLoader(
-            dataset=self.dataset_valid,
-            batch_size=self.args.batch_size_per_gpu,
-            num_workers=self.args.num_workers,
-            pin_memory=True)
+        # self.dataloader_valid = DataLoader(
+        #     dataset=self.dataset_valid,
+        #     batch_size=self.args.batch_size_per_gpu,
+        #     num_workers=self.args.num_workers,
+        #     pin_memory=True)
 
     def init_model(self):
         self.log('Initializing model')
-        self.model = MattingNetwork(
+        self.model = MattingNetwork2(
             self.args.model_variant, pretrained_backbone=True).to(self.rank)
 
         if self.args.checkpoint:
@@ -316,46 +352,50 @@ class Trainer:
             self.epoch = epoch
             self.step = epoch * len(self.dataloader_lr_train)
 
-            if not self.args.disable_validation:
-                self.validate()
+            # if not self.args.disable_validation:
+            #     self.validate()
 
             self.log(f'Training epoch: {epoch}')
-            for true_fgr, true_pha, true_bgr in tqdm(self.dataloader_lr_train, disable=self.args.disable_progress_bar, dynamic_ncols=True):
+            for true_fgr, true_pha, true_pha_com, true_bgr in tqdm(self.dataloader_lr_train, disable=self.args.disable_progress_bar, dynamic_ncols=True):
                 # Low resolution pass
-                self.train_mat(true_fgr, true_pha, true_bgr,
+                self.train_mat(true_fgr, true_pha, true_pha_com, true_bgr,
                                downsample_ratio=1, tag='lr')
 
                 # High resolution pass
                 if self.args.train_hr:
-                    true_fgr, true_pha, true_bgr = self.load_next_mat_hr_sample()
-                    self.train_mat(true_fgr, true_pha, true_bgr,
+                    true_fgr, true_pha, true_pha_com, true_bgr = self.load_next_mat_hr_sample()
+                    self.train_mat(true_fgr, true_pha, true_pha_com, true_bgr,
                                    downsample_ratio=self.args.downsample_ratio, tag='hr')
 
                 # Segmentation pass
-                if self.step % 2 == 0:
-                    true_img, true_seg = self.load_next_seg_video_sample()
-                    self.train_seg(true_img, true_seg, log_label='seg_video')
-                else:
-                    true_img, true_seg = self.load_next_seg_image_sample()
-                    self.train_seg(true_img.unsqueeze(
-                        1), true_seg.unsqueeze(1), log_label='seg_image')
+                # if self.step % 2 == 0:
+                #     true_img, true_seg = self.load_next_seg_video_sample()
+                #     self.train_seg(true_img, true_seg, log_label='seg_video')
+                # else:
+                #     true_img, true_seg = self.load_next_seg_image_sample()
+                #     self.train_seg(true_img.unsqueeze(
+                #         1), true_seg.unsqueeze(1), log_label='seg_image')
 
                 if self.step % self.args.checkpoint_save_interval == 0:
                     self.save()
 
                 self.step += 1
 
-    def train_mat(self, true_fgr, true_pha, true_bgr, downsample_ratio, tag):
+    def train_mat(self, true_fgr, true_pha, true_pha_com, true_bgr, downsample_ratio, tag):
         true_fgr = true_fgr.to(self.rank, non_blocking=True)
         true_pha = true_pha.to(self.rank, non_blocking=True)
+        true_pha_com = true_pha_com.to(self.rank, non_blocking=True)
         true_bgr = true_bgr.to(self.rank, non_blocking=True)
-        true_fgr, true_pha, true_bgr = self.random_crop(
-            true_fgr, true_pha, true_bgr)
-        true_src = true_fgr * true_pha + true_bgr * (1 - true_pha)
+        true_fgr, true_pha, true_pha_com, true_bgr = self.random_crop(
+            true_fgr, true_pha, true_pha_com, true_bgr)
+        true_src = true_fgr * true_pha_com + true_bgr * (1 - true_pha_com)
+
+        target_img = torch.randn((1, 3, true_src.shape[-2], true_src.shape[-1]),
+                                 dtype=torch.float32).to(self.rank, non_blocking=True)
 
         with autocast(enabled=not self.args.disable_mixed_precision):
             pred_fgr, pred_pha = self.model_ddp(
-                true_src, downsample_ratio=downsample_ratio)[:2]
+                true_src, target_img, downsample_ratio=downsample_ratio)[:2]
             loss = matting_loss(pred_fgr, pred_pha, true_fgr, true_pha)
 
         self.scaler.scale(loss['total']).backward()
