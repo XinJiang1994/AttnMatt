@@ -34,21 +34,16 @@ Background Video Train/Valid
 DATA_PATHS = {
 
     'videomatte': {
-        'train': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K_JPEG/train',
-        'valid': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K_JPEG/test',
-    },
-    'local_background': {
-        # 'train': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
-        'train': '/home/xinjiang/Documents/VBHOI/VBHOI-Code/LORO/Adapt_data/BG',
+        'train': '/root/userfolder/VBMH/Dataset/VideoMatte240K_JPEG/train',
+        'valid': '/root/userfolder/VBMH/Dataset/VideoMatte240K_JPEG/train',
     },
     'background_images': {
-        'train': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
-        # 'train': '/home/xinjiang/Documents/VBHOI/VBHOI-Code/LORO/Adapt_data/BG',
-        'valid': '/home/xinjiang/Documents/VBHOI/Datasets/VBHOI_COCO_BG',
+        'train': '/root/commonfiles/Datasets/MSCOCO/train2014',
+        'valid': '/root/commonfiles/Datasets/MSCOCO/train2014',
     },
     'background_videos': {
-        'train': '/home/xinjiang/Documents/VBHOI/Datasets/BG_Dynamic_JPEG',
-        'valid': '/home/xinjiang/Documents/VBHOI/Datasets/BG_Dynamic_JPEG',
+        'train': '/root/userfolder/Datasets/VBHOI/BackgroundVideos/train',
+        'valid': '/root/userfolder/Datasets/VBHOI/BackgroundVideos/test',
     },
 
 

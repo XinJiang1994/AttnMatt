@@ -3,7 +3,7 @@ python3 inference.py \
     --variant mobilenetv3 \
     --checkpoint "checkpoint/rvm_mobilenetv3.pth" \
     --device cuda \
-    --input-source "/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K/train/fgr_com/0000.mp4" \
+    --input-source "/root/userfolder/VBMH/Dataset/VideoMatte240K/train/fgr_com/0000.mp4" \
     --output-type video \
     --output-composition "output/composition.mp4" \
     --output-alpha "output/alpha.mp4" \
