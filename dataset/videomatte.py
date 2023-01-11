@@ -66,12 +66,17 @@ class VideoMatteDatasetForMH(Dataset):
         else:
             bgrs = self._get_random_video_background()
 
-        fgrs, phas, pha_coms = self._get_videomatte(idx)
+        fgrs, phas, pha_coms,target = self._get_videomatte(idx)
 
         if self.transform is not None:
-            return self.transform(fgrs, phas, pha_coms, bgrs)
+            fgrs, phas, pha_coms, bgrs = self.transform(fgrs, phas, pha_coms, bgrs)
+            
+            
+        target=transforms.ToTensor()(target)
+        print(f'fgrs {fgrs.shape}, phas {phas.shape}, pha_coms {pha_coms.shape}, bgrs {bgrs.shape}')
+#         target=transforms.Resize(size=fgrs.shape[-2:])(target)
 
-        return fgrs, phas, pha_coms, bgrs
+        return fgrs, phas, pha_coms, bgrs,target
 
     def _get_random_image_background(self):
         with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
@@ -103,15 +108,17 @@ class VideoMatteDatasetForMH(Dataset):
             frame = self.videomatte_frames[clip_idx][(
                 frame_idx + i) % frame_count]
             with Image.open(os.path.join(self.videomatte_dir, 'fgr_com', clip, frame)) as fgr, \
-                    Image.open(os.path.join(self.videomatte_dir, 'pha', clip, frame)) as pha, \
-            Image.open(os.path.join(self.videomatte_dir, 'pha_com', clip, frame)) as pha_com   :
+                  Image.open(os.path.join(self.videomatte_dir, 'pha', clip, frame)) as pha, \
+                  Image.open(os.path.join(self.videomatte_dir, 'pha_com', clip, frame)) as pha_com:
                 fgr = self._downsample_if_needed(fgr.convert('RGB'))
                 pha = self._downsample_if_needed(pha.convert('L'))
                 pha_com = self._downsample_if_needed(pha_com.convert('L'))
             fgrs.append(fgr)
             phas.append(pha)
             pha_coms.append(pha_com)
-        return fgrs, phas, pha_coms
+        with Image.open(os.path.join(self.videomatte_dir, 'target', clip+'.jpg')) as target:
+                target = self._downsample_if_needed(target.convert('RGB'))
+        return fgrs, phas, pha_coms,target
 
     def _downsample_if_needed(self, img):
         w, h = img.size
