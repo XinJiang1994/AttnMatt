@@ -112,40 +112,69 @@ class Attn(nn.Module):
 class GAM(nn.Module):
     def __init__(self, out_channels=[]):
         super().__init__()
-        self.conv_1 = nn.Sequential(
+        # for f1
+        self.conv1_3x3 = nn.Sequential(
             Conv2dIBNormRelu(
-                2 * out_channels[0], 2 * out_channels[0], 3, stride=1, padding=1),
-            Conv2dIBNormRelu(
-                2 * out_channels[0], out_channels[0], 3, stride=1, padding=1),
+                out_channels[0], out_channels[0], 3, stride=1, padding=1),
         )
-        self.conv_2 = nn.Sequential(
+        self.conv1_1x1 = nn.Sequential(
             Conv2dIBNormRelu(
-                2 * out_channels[1], 2 * out_channels[1], 3, stride=1, padding=1),
-            Conv2dIBNormRelu(
-                2 * out_channels[1], out_channels[1], 3, stride=1, padding=1),
+                out_channels[0], out_channels[0], 1, stride=1, padding=0),
         )
-        self.conv_3 = nn.Sequential(
+        # for f2
+        self.conv2_3x3 = nn.Sequential(
             Conv2dIBNormRelu(
-                2 * out_channels[2], 2 * out_channels[2], 3, stride=1, padding=1),
-            Conv2dIBNormRelu(
-                2 * out_channels[2], out_channels[2], 3, stride=1, padding=1),
+                out_channels[1], out_channels[1], 3, stride=1, padding=1),
         )
-        self.conv_4 = nn.Sequential(
+        self.conv2_1x1 = nn.Sequential(
             Conv2dIBNormRelu(
-                2 * out_channels[3], 2 * out_channels[3], 3, stride=1, padding=1),
-            Conv2dIBNormRelu(
-                2 * out_channels[3], out_channels[3], 3, stride=1, padding=1),
+                out_channels[1], out_channels[1], 1, stride=1, padding=0),
         )
+        # for f3
+        self.conv3_3x3 = nn.Sequential(
+            Conv2dIBNormRelu(
+                out_channels[2], out_channels[2], 3, stride=1, padding=1),
+        )
+        self.conv3_1x1 = nn.Sequential(
+            Conv2dIBNormRelu(
+                out_channels[2], out_channels[2], 1, stride=1, padding=0),
+        )
+        # for f4
+        self.conv4_3x3 = nn.Sequential(
+            Conv2dIBNormRelu(
+                out_channels[3], out_channels[3], 3, stride=1, padding=1),
+        )
+        self.conv4_1x1 = nn.Sequential(
+            Conv2dIBNormRelu(
+                out_channels[3], out_channels[3], 1, stride=1, padding=0),
+        )
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
 
     def forward_single_frame(self, f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t):
-        f1_m = torch.cat((f1, f1_t), 1)
-        f2_m = torch.cat((f2, f2_t), 1)
-        f3_m = torch.cat((f3, f3_t), 1)
-        f4_m = torch.cat((f4, f4_t), 1)
-        f1_m = self.conv_1(f1_m)
-        f2_m = self.conv_2(f2_m)
-        f3_m = self.conv_3(f3_m)
-        f4_m = self.conv_4(f4_m)
+        f1_3x3 = self.conv1_3x3(f1)
+        f1_t_gp = self.global_pool(f1_t)
+        f1_t_1x1 = self.conv1_1x1(f1_t_gp)
+        f1_m = f1_3x3.mul(f1_t_1x1)
+        f1_m = f1 + f1_m
+
+        f2_3x3 = self.conv2_3x3(f2)
+        f2_t_gp = self.global_pool(f2_t)
+        f2_t_1x1 = self.conv2_1x1(f2_t_gp)
+        f2_m = f2_3x3.mul(f2_t_1x1)
+        f2_m = f2 + f2_m
+
+        f3_3x3 = self.conv3_3x3(f3)
+        f3_t_gp = self.global_pool(f3_t)
+        f3_t_1x1 = self.conv3_1x1(f3_t_gp)
+        f3_m = f3_3x3.mul(f3_t_1x1)
+        f3_m = f3 + f3_m
+
+        f4_3x3 = self.conv4_3x3(f4)
+        f4_t_gp = self.global_pool(f4_t)
+        f4_t_1x1 = self.conv4_1x1(f4_t_gp)
+        f4_m = f4_3x3.mul(f4_t_1x1)
+        f4_m = f4 + f4_m
+
         return f1_m, f2_m, f3_m, f4_m
 
     def forward_time_series(self, f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t):
