@@ -4,7 +4,7 @@ from torch import nn
 from torch.nn import functional as F
 from typing import Optional, List
 
-from model.attn_merge import Attn
+from model.attn_merge import Attn, GAM
 
 from .target_encoder import EncoderT
 
@@ -84,7 +84,7 @@ class MattingNetwork(nn.Module):
         else:
             x = F.interpolate(x, scale_factor=scale_factor,
                               mode='bilinear', align_corners=False, recompute_scale_factor=False)
-        return x
+        return
 
 
 class MattingNetwork2(nn.Module):
@@ -100,7 +100,8 @@ class MattingNetwork2(nn.Module):
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
             self.aspp = LRASPP(960, 128)
             self.encoder_t = EncoderT(variant, pretrained_backbone)
-            self.attn = Attn(out_channels=[16, 24, 40, 128])
+#             self.attn = Attn(out_channels=[16, 24, 40, 128])
+            self.attn = GAM(out_channels=[16, 24, 40, 128])
             self.decoder = RecurrentDecoder(
                 [16, 24, 40, 128], [80, 40, 32, 16])
         else:
@@ -141,8 +142,6 @@ class MattingNetwork2(nn.Module):
         # print('>>>>>>>>>>>>>>>>',  f1.shape, f2.shape, f3.shape, f4.shape)
         # print('>>>>>>>>>>>>>>>>',  f1_t.shape,
         #       f2_t.shape, f3_t.shape, f4_t.shape)
-        # print('**************',f1.shape)
-        # print('^^^^^^^^^^^^^^', f1_t.shape)
 
         f1_m, f2_m, f3_m, f4_m = self.attn(
             f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t)
