@@ -34,8 +34,8 @@ Background Video Train/Valid
 DATA_PATHS = {
 
     'videomatte': {
-        'train': '/root/userfolder/VBMH/Dataset/VideoMatte240K_JPEG/train',
-        'valid': '/root/userfolder/VBMH/Dataset/VideoMatte240K_JPEG/train',
+        'train': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K/train',
+        'valid': '/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K/train',
     },
     'background_images': {
         'train': '/root/commonfiles/Datasets/MSCOCO/train2014',

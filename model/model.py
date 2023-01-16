@@ -84,7 +84,7 @@ class MattingNetwork(nn.Module):
         else:
             x = F.interpolate(x, scale_factor=scale_factor,
                               mode='bilinear', align_corners=False, recompute_scale_factor=False)
-        return
+        return x
 
 
 class MattingNetwork2(nn.Module):
@@ -141,6 +141,8 @@ class MattingNetwork2(nn.Module):
         # print('>>>>>>>>>>>>>>>>',  f1.shape, f2.shape, f3.shape, f4.shape)
         # print('>>>>>>>>>>>>>>>>',  f1_t.shape,
         #       f2_t.shape, f3_t.shape, f4_t.shape)
+        # print('**************',f1.shape)
+        # print('^^^^^^^^^^^^^^', f1_t.shape)
 
         f1_m, f2_m, f3_m, f4_m = self.attn(
             f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t)

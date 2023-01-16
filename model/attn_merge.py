@@ -53,6 +53,67 @@ class Attn(nn.Module):
         super().__init__()
         self.conv_1 = nn.Sequential(
             Conv2dIBNormRelu(
+                2 * out_channels[0], out_channels[0], 1, stride=1, padding=0),
+        )
+        self.conv_2 = nn.Sequential(
+            Conv2dIBNormRelu(
+                2 * out_channels[1], out_channels[1], 1, stride=1, padding=0),
+        )
+        self.conv_3 = nn.Sequential(
+            Conv2dIBNormRelu(
+                2 * out_channels[2], out_channels[2], 1, stride=1, padding=0),
+        )
+        self.conv_4 = nn.Sequential(
+            Conv2dIBNormRelu(
+                2 * out_channels[3], out_channels[3], 1, stride=1, padding=0),
+        )
+
+    def forward_single_frame(self, f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t):
+        f1_m = torch.cat((f1, f1_t), 1)
+        f2_m = torch.cat((f2, f2_t), 1)
+        f3_m = torch.cat((f3, f3_t), 1)
+        f4_m = torch.cat((f4, f4_t), 1)
+        f1_m = self.conv_1(f1_m)
+        f2_m = self.conv_2(f2_m)
+        f3_m = self.conv_3(f3_m)
+        f4_m = self.conv_4(f4_m)
+        return f1_m, f2_m, f3_m, f4_m
+
+    def forward_time_series(self, f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t):
+        input_shape = f1.shape
+        f1_t = f1_t[:, None, :, :, :]
+        f2_t = f2_t[:, None, :, :, :]
+        f3_t = f3_t[:, None, :, :, :]
+        f4_t = f4_t[:, None, :, :, :]
+
+        f1_t = f1_t.repeat(1, input_shape[1], 1, 1, 1)
+        f2_t = f2_t.repeat(1, input_shape[1], 1, 1, 1)
+        f3_t = f3_t.repeat(1, input_shape[1], 1, 1, 1)
+        f4_t = f4_t.repeat(1, input_shape[1], 1, 1, 1)
+
+        B, T = input_shape[:2]
+        f1_m, f2_m, f3_m, f4_m = self.forward_single_frame(
+            f1.flatten(0, 1), f2.flatten(0, 1), f3.flatten(0, 1), f4.flatten(0, 1), f1_t.flatten(0, 1), f2_t.flatten(0, 1), f3_t.flatten(0, 1), f4_t.flatten(0, 1))
+        f1_m = f1_m.unflatten(0, (B, T))
+        f2_m = f2_m.unflatten(0, (B, T))
+        f3_m = f3_m.unflatten(0, (B, T))
+        f4_m = f4_m.unflatten(0, (B, T))
+        return f1_m, f2_m, f3_m, f4_m
+
+    def forward(self, f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t):
+        if len(f1.shape) == 5:
+            return self.forward_time_series(f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t)
+        else:
+            return self.forward_single_frame(f1, f2, f3, f4, f1_t, f2_t, f3_t, f4_t)
+
+# Global attention module
+
+
+class GAM(nn.Module):
+    def __init__(self, out_channels=[]):
+        super().__init__()
+        self.conv_1 = nn.Sequential(
+            Conv2dIBNormRelu(
                 2 * out_channels[0], 2 * out_channels[0], 3, stride=1, padding=1),
             Conv2dIBNormRelu(
                 2 * out_channels[0], out_channels[0], 3, stride=1, padding=1),

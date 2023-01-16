@@ -1,13 +1,13 @@
 """
 python3 inference.py \
     --variant mobilenetv3 \
-    --checkpoint "checkpoint/rvm_mobilenetv3.pth" \
+    --checkpoint "checkpoint/stage1/epoch-4.pth" \
     --device cuda \
-    --input-source "/root/userfolder/VBMH/Dataset/VideoMatte240K/train/fgr_com/0000.mp4" \
+    --input-source "/home/xinjiang/Documents/VBMH/Dataset/VideoMatte240K/train/fgr_com/0006.mp4" \
     --output-type video \
-    --output-composition "output/composition.mp4" \
-    --output-alpha "output/alpha.mp4" \
-    --output-foreground "output/foreground.mp4" \
+    --output-composition "output/com_new.mp4" \
+    --output-alpha "output/pha_new.mp4" \
+    --output-foreground "output/fgr_new.mp4" \
     --output-video-mbps 4 \
     --seq-chunk 1
 """
@@ -15,6 +15,7 @@ python3 inference.py \
 import torch
 import os
 from torch.utils.data import DataLoader
+from PIL import Image
 from torchvision import transforms
 from typing import Optional, Tuple
 from tqdm.auto import tqdm
@@ -81,6 +82,16 @@ def convert_video(model,
     reader = DataLoader(source, batch_size=seq_chunk,
                         pin_memory=True, num_workers=num_workers)
 
+    target_source = input_source.replace(
+        'VideoMatte240K', 'VideoMatte240K_JPEG')
+    target_source = target_source.replace('fgr_com', 'target')
+    target_source = target_source.replace('.mp4', '.jpg')
+    if os.path.isfile(target_source):
+        target = Image.open(target_source)
+        target = transforms.ToTensor()(target)
+    else:
+        print(f"File not exist! [{target_source}]")
+        exit(0)
     # Initialize writers
     if output_type == 'video':
         frame_rate = source.frame_rate if isinstance(
@@ -125,14 +136,15 @@ def convert_video(model,
             bar = tqdm(total=len(source), disable=not progress,
                        dynamic_ncols=True)
             rec = [None] * 4
+            target = target.to(device, dtype, non_blocking=True).unsqueeze(0)
             for src in reader:
-
                 if downsample_ratio is None:
                     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
                 src = src.to(device, dtype, non_blocking=True).unsqueeze(
                     0)  # [B, T, C, H, W]
-                fgr, pha, *rec = model(src, *rec, downsample_ratio)
+                # print(src.shape, target.shape)
+                fgr, pha, *rec = model(src, target, *rec, downsample_ratio)
 
                 if output_foreground is not None:
                     writer_fgr.write(fgr[0])
@@ -167,7 +179,7 @@ def auto_downsample_ratio(h, w):
 
 class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
-        self.model = MattingNetwork(variant).eval().to(device)
+        self.model = MattingNetwork2(variant).eval().to(device)
         self.model.load_state_dict(torch.load(checkpoint, map_location=device))
         self.model = torch.jit.script(self.model)
         self.model = torch.jit.freeze(self.model)
@@ -180,7 +192,7 @@ class Converter:
 
 if __name__ == '__main__':
     import argparse
-    from model import MattingNetwork
+    from model import MattingNetwork2
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--variant', type=str, required=True,

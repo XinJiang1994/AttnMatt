@@ -4,6 +4,7 @@
 # You may want to change `--num-workers` according to your machine's memory.
 # The default num-workers=8 may cause dataloader to exit unexpectedly when
 # machine is out of memory.
+    --checkpoint checkpoint/stage1/epoch-4.pth \
 
 # Stage 1
 python3 train.py \
@@ -16,7 +17,6 @@ python3 train.py \
     --learning-rate-attn 0.0002 \
     --learning-rate-decoder 0.00001 \
     --learning-rate-refiner 0.00001 \
-    --checkpoint checkpoint/stage1/epoch-4.pth \
     --checkpoint-dir checkpoint/stage1 \
     --log-dir log/stage1 \
     --epoch-start 5 \
@@ -160,7 +160,7 @@ class Trainer:
         parser.add_argument('--seq-length-lr', type=int, required=True)
         parser.add_argument('--seq-length-hr', type=int, default=6)
         parser.add_argument('--downsample-ratio', type=float, default=0.25)
-        parser.add_argument('--batch-size-per-gpu', type=int, default=5)
+        parser.add_argument('--batch-size-per-gpu', type=int, default=1)
         parser.add_argument('--num-workers', type=int, default=8)
         parser.add_argument('--epoch-start', type=int, default=0)
         parser.add_argument('--epoch-end', type=int, default=16)
@@ -324,14 +324,16 @@ class Trainer:
 
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
-            state_dict = torch.load(self.args.checkpoint, map_location=f'cuda:{self.rank}')
-            encoder_t_params=OrderedDict()
-            for k,v in state_dict.items():
-                if k[:9]=='backbone.' or k[:5]=='aspp.':
-                    encoder_t_params['encoder_t.'+k]=v
-                
-            state_dict.update(encoder_t_params)
-            self.log(self.model.load_state_dict(state_dict,strict=False))
+            state_dict = torch.load(
+                self.args.checkpoint, map_location=f'cuda:{self.rank}')
+            if 'rvm_mobilenetv3.pth' == self.args.checkpoint[-19:]:
+                encoder_t_params = OrderedDict()
+                for k, v in state_dict.items():
+                    if k[:9] == 'backbone.' or k[:5] == 'aspp.':
+                        encoder_t_params['encoder_t.'+k] = v
+
+                state_dict.update(encoder_t_params)
+            self.log(self.model.load_state_dict(state_dict, strict=False))
 
         self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
         self.model_ddp = DDP(self.model, device_ids=[
@@ -371,6 +373,7 @@ class Trainer:
 
             self.log(f'Training epoch: {epoch}')
             for true_fgr, true_pha, true_pha_com, true_bgr, target in tqdm(self.dataloader_lr_train, disable=self.args.disable_progress_bar, dynamic_ncols=True):
+                #                 print(true_fgr.shape, true_pha.shape, true_pha_com.shape, true_bgr.shape, target.shape)
                 # Low resolution pass
                 self.train_mat(true_fgr, true_pha, true_pha_com, true_bgr, target,
                                downsample_ratio=1, tag='lr')
@@ -395,21 +398,22 @@ class Trainer:
 
                 self.step += 1
 
-    def train_mat(self, true_fgr, true_pha, true_pha_com, true_bgr,target, downsample_ratio, tag):
+    def train_mat(self, true_fgr, true_pha, true_pha_com, true_bgr, target, downsample_ratio, tag):
         true_fgr = true_fgr.to(self.rank, non_blocking=True)
         true_pha = true_pha.to(self.rank, non_blocking=True)
         true_pha_com = true_pha_com.to(self.rank, non_blocking=True)
         true_bgr = true_bgr.to(self.rank, non_blocking=True)
-        
-        src_size=true_fgr.shape[-2:]
+
+        src_size = true_fgr.shape[-2:]
         true_fgr, true_pha, true_pha_com, true_bgr = self.random_crop(
             true_fgr, true_pha, true_pha_com, true_bgr)
         true_src = true_fgr * true_pha_com + true_bgr * (1 - true_pha_com)
 
 #         target_img = torch.randn((1, 3, true_src.shape[-2], true_src.shape[-1]),
 #                                  dtype=torch.float32).to(self.rank, non_blocking=True)
-        target_img=target.to(self.rank, non_blocking=True)
-        target_img=self.process_target(target_img,src_size,tsize=true_src.shape[-2:])
+        target_img = target.to(self.rank, non_blocking=True)
+        target_img = self.process_target(
+            target_img, src_size, tsize=true_src.shape[-2:])
 
         with autocast(enabled=not self.args.disable_mixed_precision):
             pred_fgr, pred_pha = self.model_ddp(
@@ -532,16 +536,17 @@ class Trainer:
             img = img.reshape(B, T, *img.shape[1:])
             results.append(img)
         return results
-    def process_target(self,target,src_size,tsize):
+
+    def process_target(self, target, src_size, tsize):
         h, w = tsize
-        B=target.shape[0]
+#         B=target.shape[0]
 #         target= target.flatten(0,1)
+#         print("tsize: ", tsize)
         target = F.interpolate(target, (max(h, w), max(h, w)),
-                                mode='bilinear', align_corners=False)
+                               mode='bilinear', align_corners=False)
         target = center_crop(target, tsize)
 #         target = target.reshape(B, *target.shape[1:])
         return target
-        
 
     def save(self):
         if self.rank == 0:
